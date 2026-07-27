@@ -1,0 +1,6 @@
+{
+  "name": "Fongbe - Traducteur Fon-Français",
+  "description": "Plateforme d'exploration et de traduction neuronale Fon-Français à faibles ressources, intégrant la gestion des diacritiques, de la tokenisation et de l'augmentation de données.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
