@@ -12,7 +12,9 @@ import {
   Award,
   Scale,
   FileText,
-  Download
+  Download,
+  Film,
+  Video
 } from 'lucide-react';
 import Translator from './components/Translator';
 import DatasetExplorer from './components/DatasetExplorer';
@@ -20,6 +22,7 @@ import ModelSpecs from './components/ModelSpecs';
 import DataAugmenter from './components/DataAugmenter';
 import EthicsSection from './components/EthicsSection';
 import ProjectPdfModal from './components/ProjectPdfModal';
+import VideoPresentationModal from './components/VideoPresentationModal';
 import { TranslationResult } from './types';
 
 type ActiveTab = 'translate' | 'dataset' | 'augment' | 'model' | 'ethics';
@@ -28,6 +31,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('translate');
   const [currentResult, setCurrentResult] = useState<TranslationResult | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
   const handleTranslationComplete = (result: TranslationResult) => {
     setCurrentResult(result);
@@ -43,14 +47,25 @@ export default function App() {
           <span className="sm:hidden">Projet Traducteur Fongbe</span>
         </div>
         
-        <button
-          id="btn-open-pdf-modal-top"
-          onClick={() => setIsPdfModalOpen(true)}
-          className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center space-x-1 shadow-xs cursor-pointer"
-        >
-          <FileText className="w-3 h-3" />
-          <span>Générer Rapport PDF</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            id="btn-open-video-modal-top"
+            onClick={() => setIsVideoModalOpen(true)}
+            className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center space-x-1 shadow-xs cursor-pointer"
+          >
+            <Film className="w-3 h-3" />
+            <span>Vidéo de Présentation</span>
+          </button>
+          
+          <button
+            id="btn-open-pdf-modal-top"
+            onClick={() => setIsPdfModalOpen(true)}
+            className="bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center space-x-1 shadow-xs cursor-pointer"
+          >
+            <FileText className="w-3 h-3 text-emerald-400" />
+            <span>Rapport PDF</span>
+          </button>
+        </div>
       </div>
 
       {/* Primary Header Section */}
@@ -140,15 +155,26 @@ export default function App() {
               </button>
             </nav>
 
-            {/* Dedicated Export PDF Header Button */}
-            <button
-              id="btn-header-export-pdf"
-              onClick={() => setIsPdfModalOpen(true)}
-              className="w-full sm:w-auto bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center justify-center space-x-2 shrink-0"
-            >
-              <FileText className="w-3.5 h-3.5 text-emerald-400" />
-              <span>PDF Projet</span>
-            </button>
+            {/* Action Buttons (Video & PDF) */}
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <button
+                id="btn-header-open-video"
+                onClick={() => setIsVideoModalOpen(true)}
+                className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center justify-center space-x-2 shrink-0 cursor-pointer"
+              >
+                <Film className="w-3.5 h-3.5 text-white" />
+                <span>Générer Vidéo</span>
+              </button>
+
+              <button
+                id="btn-header-export-pdf"
+                onClick={() => setIsPdfModalOpen(true)}
+                className="flex-1 sm:flex-none bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center justify-center space-x-2 shrink-0 cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                <span>PDF Projet</span>
+              </button>
+            </div>
           </div>
 
         </div>
@@ -241,10 +267,15 @@ export default function App() {
         </div>
       </footer>
 
-      {/* PDF Modal */}
+      {/* Modals (PDF & Video Presentation) */}
       <ProjectPdfModal 
         isOpen={isPdfModalOpen} 
         onClose={() => setIsPdfModalOpen(false)} 
+      />
+
+      <VideoPresentationModal
+        isOpen={isVideoModalOpen}
+        onClose={() => setIsVideoModalOpen(false)}
       />
     </div>
   );
