@@ -24,23 +24,57 @@ interface TranslatorProps {
 }
 
 export default function Translator({ onTranslationComplete, currentResult, setCurrentResult }: TranslatorProps) {
+  // --- VARIABLES D'ÉTAT PRINCIPALES ---
+  // sourceText : Texte saisi par l'utilisateur pour traduction (Fongbe ou Français)
   const [sourceText, setSourceText] = useState('');
+  // direction : Sens de traduction actif ('fon2fr' : Fongbe vers Français, 'fr2fon' : Français vers Fongbe)
   const [direction, setDirection] = useState<'fon2fr' | 'fr2fon'>('fon2fr');
+  // isLoading : Gère l'affichage du spinner d'attente pendant les appels API
   const [isLoading, setIsLoading] = useState(false);
+  // error : Contient le message d'erreur si la traduction ou la requête échoue
   const [error, setError] = useState<string | null>(null);
+  // selectedSampleId : Identifiant de la phrase de référence (preset) actuellement sélectionnée
   const [selectedSampleId, setSelectedSampleId] = useState('');
+  // activeTab : Gère l'onglet actif pour les détails linguistiques ou d'évaluation
   const [activeTab, setActiveTab] = useState<'translation' | 'tokens' | 'linguistics'>('translation');
+  // audioPlaying : Indique si la synthèse vocale/prononciation est en cours de lecture
   const [audioPlaying, setAudioPlaying] = useState(false);
+  // copied : Gère l'état d'animation de confirmation de copie du texte traduit
   const [copied, setCopied] = useState(false);
 
-  // New state variables for user-centric improvements (correcting weaknesses)
+  // --- VARIABLES D'ÉTAT AVANCÉES / COMPLEMENTAIRES ---
+  // isExpertMode : Active l'affichage des métriques NLP avancées (BLEU, chrF, Tokenisation SentencePiece)
   const [isExpertMode, setIsExpertMode] = useState<boolean>(false);
+  // history : Liste des traductions récentes sauvegardées localement (localStorage)
   const [history, setHistory] = useState<any[]>([]);
+  // suggestedText : Contient la proposition d'amélioration saisie par l'utilisateur
   const [suggestedText, setSuggestedText] = useState('');
+  // isSuggestingCorrection : Gère l'apparition du formulaire de proposition de correction
   const [isSuggestingCorrection, setIsSuggestingCorrection] = useState(false);
+  // correctionSubmitted : Détermine si l'utilisateur a soumis sa correction avec succès
   const [correctionSubmitted, setCorrectionSubmitted] = useState(false);
 
-  // Load history on mount
+  // --- DICTIONNAIRE COLLABORATIF ET VOCABULAIRE PERSONNALISÉ ---
+  const [customDictionary, setCustomDictionary] = useState<{ id: string; source: string; target: string }[]>(() => {
+    try {
+      const stored = localStorage.getItem('ffr_custom_dictionary');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveCustomDictionary = (newDict: { id: string; source: string; target: string }[]) => {
+    setCustomDictionary(newDict);
+    try {
+      localStorage.setItem('ffr_custom_dictionary', JSON.stringify(newDict));
+    } catch (e) {
+      console.error("Failed to save custom dictionary", e);
+    }
+  };
+
+  // --- CYCLE DE VIE & PERSISTANCE LOCALE (HISTORIQUE) ---
+  // Charge l'historique des traductions depuis le localStorage au montage du composant
   useEffect(() => {
     try {
       const stored = localStorage.getItem('ffr_translation_history');
@@ -52,6 +86,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     }
   }, []);
 
+  // Met à jour l'historique local et persiste les données de façon sécurisée
   const saveHistory = (newHistory: any[]) => {
     setHistory(newHistory);
     try {
@@ -61,6 +96,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     }
   };
 
+  // Ajoute ou retire une traduction de la liste des favoris de l'utilisateur
   const toggleFavorite = (id: string) => {
     const updated = history.map(item => {
       if (item.id === id) {
@@ -71,15 +107,18 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     saveHistory(updated);
   };
 
+  // Supprime un élément spécifique de l'historique
   const deleteHistoryItem = (id: string) => {
     const updated = history.filter(item => item.id !== id);
     saveHistory(updated);
   };
 
+  // Vide entièrement l'historique local de l'utilisateur
   const clearAllHistory = () => {
     saveHistory([]);
   };
 
+  // Rappelle une ancienne traduction depuis l'historique directement dans le traducteur
   const handleSelectHistoryItem = (item: any) => {
     setSourceText(item.source);
     setDirection(item.direction as 'fon2fr' | 'fr2fon');
@@ -96,10 +135,12 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     setCorrectionSubmitted(false);
   };
 
+  // --- GESTION DES CORRECTIONS COLLABORATIVES ---
+  // Permet d'enregistrer localement les corrections proposées par les utilisateurs.
+  // Ces données pourront être exploitées ultérieurement pour affiner le modèle (RLHF / Alignement humain).
   const handleSubmitCorrection = () => {
     if (!suggestedText.trim() || !currentResult) return;
     
-    // Save suggested correction locally
     try {
       const stored = localStorage.getItem('ffr_community_corrections') || '[]';
       const parsed = JSON.parse(stored);
@@ -119,10 +160,11 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     setCorrectionSubmitted(true);
   };
 
-  // Virtual keyboard keys for Fon diacritics
+  // --- CLAVIER VIRTUEL FONGBE ---
+  // Liste des diacritiques indispensables au Fongbe (lettre D barré, E et O ouverts, accents de tons)
   const fonKeys = ['ɖ', 'ɛ', 'ɔ', 'á', 'à', 'ǎ', 'â', 'ɛ́', 'ɛ̀', 'ɛ̌', 'ɔ́', 'ɔ̀', 'ɔ̌'];
 
-  // Handle preset selection
+  // Gère la sélection d'une phrase modèle d'exemple issue du dataset FFR-v1
   const handleSampleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const sampleId = e.target.value;
     setSelectedSampleId(sampleId);
@@ -138,7 +180,9 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     }
   };
 
-  // Switch direction
+  // --- CONTRÔLES DE L'INTERFACE & REQUÊTES ---
+
+  // Inverse le sens de traduction (Fongbe ➔ Français ou Français ➔ Fongbe) et réinitialise les zones de texte
   const handleToggleDirection = () => {
     const newDir = direction === 'fon2fr' ? 'fr2fon' : 'fon2fr';
     setDirection(newDir);
@@ -148,12 +192,12 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     setError(null);
   };
 
-  // Input helper
+  // Insère un caractère spécial du Fongbe à la position courante du curseur
   const handleInsertChar = (char: string) => {
     setSourceText(prev => prev + char);
   };
 
-  // Trigger translation
+  // Lance l'appel API de traduction vers le serveur Express (Gemini + Validation FFR)
   const handleTranslate = async () => {
     if (!sourceText.trim()) return;
 
@@ -161,6 +205,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     setError(null);
 
     try {
+      // Appel API POST vers /api/translate
       const response = await fetch('/api/translate', {
         method: 'POST',
         headers: {
@@ -168,20 +213,42 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
         },
         body: JSON.stringify({
           text: sourceText,
-          direction: direction
+          direction: direction,
+          customDictionary: customDictionary.map(item => ({
+            source: item.source,
+            target: item.target
+          }))
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || 'Erreur lors de la traduction.');
+      let result: TranslationResult;
+      try {
+        if (!response.ok) {
+          const contentType = response.headers.get("content-type");
+          let errMsg = 'Erreur lors de la traduction.';
+          if (contentType && contentType.includes("application/json")) {
+            const errData = await response.json();
+            errMsg = errData.error || errMsg;
+          } else {
+            errMsg = `Le serveur a renvoyé une réponse invalide (Code ${response.status}).`;
+          }
+          throw new Error(errMsg);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Le serveur n'a pas retourné de réponse au format JSON. Veuillez rafraîchir la page et réessayer.");
+        }
+
+        result = await response.json();
+      } catch (parseErr: any) {
+        throw new Error(parseErr.message || "Impossible de parser la réponse du serveur.");
       }
 
-      const result: TranslationResult = await response.json();
       setCurrentResult(result);
       onTranslationComplete(result);
 
-      // Add to history
+      // Enregistrement de l'entrée dans l'historique local
       const newHistoryItem = {
         id: Math.random().toString(36).substring(2, 9),
         source: sourceText,
@@ -191,6 +258,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
         isFavorite: false
       };
       
+      // Filtre les doublons et conserve uniquement les 50 dernières requêtes
       setHistory(prev => {
         const filtered = prev.filter(item => item.source.toLowerCase().trim() !== sourceText.toLowerCase().trim());
         const updated = [newHistoryItem, ...filtered].slice(0, 50);
@@ -202,7 +270,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
         return updated;
       });
 
-      // Reset correction suggestion state
+      // Réinitialise les états de correction collaborative
       setIsSuggestingCorrection(false);
       setCorrectionSubmitted(false);
       setSuggestedText(result.translatedText);
@@ -213,6 +281,7 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     }
   };
 
+  // Réinitialise tous les champs de l'interface utilisateur
   const handleClear = () => {
     setSourceText('');
     setSelectedSampleId('');
@@ -220,19 +289,23 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
     setError(null);
   };
 
+  // Copie le texte traduit dans le presse-papier de l'appareil de l'utilisateur
   const handleCopyText = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Phonetic pronounce simulator
+  // --- SYNTHÈSE VOCALE ET PRONONCIATION LINGUISTIQUE ---
+  // Permet de lire vocalement le texte. Pour le Français, utilise l'API native.
+  // Pour le Fongbe, applique des transformations phonétiques approximatives pour contourner l'absence
+  // de voix de synthèse native africaine dans les moteurs Web standards.
   const handlePlayAudio = (text: string, lang: 'fon' | 'fr') => {
     if (audioPlaying) return;
     setAudioPlaying(true);
 
     if (lang === 'fr') {
-      // Use browser built-in speech synthesis for French
+      // Lecture standard en Français
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'fr-FR';
@@ -242,20 +315,19 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
         setTimeout(() => setAudioPlaying(false), 1500);
       }
     } else {
-      // Fon text-to-speech phonetic guide simulation (beeping/syllabic simulation)
+      // Lecture approximative en Fongbe par transposition syllabique
       if ('speechSynthesis' in window) {
-        // Break Fon text into readable phonetic segments for approximation
         let phonetic = text.toLowerCase()
-          .replace(/ɖ/g, 'd')
-          .replace(/ɛ/g, 'è')
-          .replace(/ɔ/g, 'o')
-          .replace(/gb/g, 'b')
-          .replace(/kp/g, 'p')
-          .replace(/ny/g, 'gn')
-          .replace(/x/g, 'h');
+          .replace(/ɖ/g, 'd')      // Le "ɖ" rétroflexe est lu comme un "d"
+          .replace(/ɛ/g, 'è')      // Le "ɛ" ouvert est lu comme un "è" ou "e" ouvert
+          .replace(/ɔ/g, 'o')      // Le "ɔ" ouvert est lu comme un "o" ouvert
+          .replace(/gb/g, 'b')     // Approximation du digramme "gb"
+          .replace(/kp/g, 'p')     // Approximation du digramme "kp"
+          .replace(/ny/g, 'gn')    // Le "ny" nasalisé est prononcé comme le "gn" français (ex: oignon)
+          .replace(/x/g, 'h');     // Le "x" (fricative vélaire) est lu comme un "h" aspiré
         
         const utterance = new SpeechSynthesisUtterance(phonetic);
-        // Fon phonetic guide works best with slightly slower rate & higher pitch
+        // Ralentit la cadence pour favoriser une bonne décomposition des phonèmes complexes
         utterance.lang = 'fr-FR';
         utterance.rate = 0.75;
         utterance.pitch = 1.1;
@@ -877,6 +949,84 @@ export default function Translator({ onTranslationComplete, currentResult, setCu
             </div>
           </>
         )}
+
+        {/* Custom Lexicon / Dictionary Management Panel */}
+        <div className="bg-white rounded-2xl shadow-xs border border-zinc-200/80 p-6 space-y-4 text-left">
+          <div className="border-b border-zinc-100 pb-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <BookOpen className="w-4 h-4 text-zinc-800" />
+              <h3 className="font-display font-semibold text-zinc-900 text-sm">Lexique Customisé ({customDictionary.length})</h3>
+            </div>
+          </div>
+
+          {/* Form to add custom entry */}
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const sourceVal = (e.currentTarget.elements.namedItem('sourceWord') as HTMLInputElement).value.trim();
+            const targetVal = (e.currentTarget.elements.namedItem('targetWord') as HTMLInputElement).value.trim();
+            if (!sourceVal || !targetVal) return;
+            
+            const newEntry = {
+              id: Math.random().toString(36).substring(2, 9),
+              source: sourceVal,
+              target: targetVal
+            };
+            saveCustomDictionary([newEntry, ...customDictionary]);
+            e.currentTarget.reset();
+          }} className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                name="sourceWord"
+                type="text"
+                placeholder="Mot source (ex: ɖévi)"
+                className="w-full text-[11px] bg-zinc-50 border border-zinc-200 rounded-lg p-2 focus:border-zinc-500 outline-none placeholder:text-zinc-400 font-medium"
+                required
+              />
+              <input
+                name="targetWord"
+                type="text"
+                placeholder="Traduction (ex: enfant)"
+                className="w-full text-[11px] bg-zinc-50 border border-zinc-200 rounded-lg p-2 focus:border-zinc-500 outline-none placeholder:text-zinc-400 font-medium"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[11px] font-bold transition shadow-2xs"
+            >
+              + Ajouter au dictionnaire
+            </button>
+          </form>
+
+          {customDictionary.length === 0 ? (
+            <p className="text-[10px] text-zinc-400 italic text-center py-2">
+              Aucun mot personnalisé. Vos ajouts seront injectés en temps réel dans le traducteur IA !
+            </p>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {customDictionary.map((item) => (
+                <div key={item.id} className="bg-zinc-50 border border-zinc-100 rounded-lg p-2 flex items-center justify-between text-xs hover:border-zinc-200 transition">
+                  <div className="truncate flex-1 pr-2">
+                    <span className="font-bold text-zinc-900 font-mono text-[11px]">{item.source}</span>
+                    <span className="text-zinc-400 mx-1.5">➔</span>
+                    <span className="text-zinc-700 font-medium text-[11px]">{item.target}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = customDictionary.filter(x => x.id !== item.id);
+                      saveCustomDictionary(updated);
+                    }}
+                    className="text-zinc-400 hover:text-red-500 p-0.5 transition"
+                    title="Retirer ce mot"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   </div>

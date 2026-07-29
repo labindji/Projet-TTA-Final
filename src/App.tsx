@@ -9,19 +9,25 @@ import {
   HelpCircle, 
   Github,
   BookOpen,
-  Award
+  Award,
+  Scale,
+  FileText,
+  Download
 } from 'lucide-react';
 import Translator from './components/Translator';
 import DatasetExplorer from './components/DatasetExplorer';
 import ModelSpecs from './components/ModelSpecs';
 import DataAugmenter from './components/DataAugmenter';
+import EthicsSection from './components/EthicsSection';
+import ProjectPdfModal from './components/ProjectPdfModal';
 import { TranslationResult } from './types';
 
-type ActiveTab = 'translate' | 'dataset' | 'augment' | 'model';
+type ActiveTab = 'translate' | 'dataset' | 'augment' | 'model' | 'ethics';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('translate');
   const [currentResult, setCurrentResult] = useState<TranslationResult | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   const handleTranslationComplete = (result: TranslationResult) => {
     setCurrentResult(result);
@@ -30,18 +36,30 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#fafafa] flex flex-col font-sans selection:bg-zinc-950 selection:text-white">
       {/* Upper informational announcement bar */}
-      <div className="bg-zinc-900 text-white text-[11px] font-semibold tracking-wider text-center py-2 px-4 border-b border-zinc-800 flex justify-center items-center space-x-2">
-        <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[9px]">FFR-v1 CORPUS</span>
-        <span>PROJET : Traducteur Fon–Français à Faibles Ressources (Low-Resource NMT)</span>
+      <div className="bg-zinc-900 text-white text-[11px] font-semibold tracking-wider py-2 px-4 border-b border-zinc-800 flex justify-between items-center max-w-7xl mx-auto w-full">
+        <div className="flex items-center space-x-2">
+          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[9px]">FFR-v1 CORPUS</span>
+          <span className="hidden sm:inline">PROJET : Traducteur Fon–Français à Faibles Ressources (Low-Resource NMT)</span>
+          <span className="sm:hidden">Projet Traducteur Fongbe</span>
+        </div>
+        
+        <button
+          id="btn-open-pdf-modal-top"
+          onClick={() => setIsPdfModalOpen(true)}
+          className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-2.5 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center space-x-1 shadow-xs cursor-pointer"
+        >
+          <FileText className="w-3 h-3" />
+          <span>Générer Rapport PDF</span>
+        </button>
       </div>
 
       {/* Primary Header Section */}
       <header className="bg-white border-b border-zinc-200/80 sticky top-0 z-30 shadow-2xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col lg:flex-row items-center justify-between gap-3">
           
           {/* Logo & title */}
           <div className="flex items-center space-x-3.5">
-            <div className="h-10 w-10 bg-zinc-950 text-white rounded-xl flex items-center justify-center font-display font-bold text-lg shadow-sm">
+            <div className="h-10 w-10 bg-zinc-950 text-white rounded-xl flex items-center justify-center font-display font-bold text-lg shadow-sm shrink-0">
               Fɔ́
             </div>
             <div>
@@ -53,60 +71,86 @@ export default function App() {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <nav className="flex space-x-1 bg-zinc-100/80 p-1 rounded-xl w-full md:w-auto">
-            <button
-              id="nav-btn-translate"
-              onClick={() => setActiveTab('translate')}
-              className={`flex-1 md:flex-none flex items-center justify-center space-x-2 text-xs font-semibold px-4 py-2.5 rounded-lg transition-all ${
-                activeTab === 'translate' 
-                  ? 'bg-white text-zinc-900 shadow-xs' 
-                  : 'text-zinc-500 hover:text-zinc-800'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>Traducteur</span>
-            </button>
+          {/* Right Action + Navigation Tabs */}
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full lg:w-auto">
+            <nav className="flex space-x-1 bg-zinc-100/80 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
+              <button
+                id="nav-btn-translate"
+                onClick={() => setActiveTab('translate')}
+                className={`flex-1 sm:flex-none flex items-center justify-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all ${
+                  activeTab === 'translate' 
+                    ? 'bg-white text-zinc-900 shadow-xs' 
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Traducteur</span>
+              </button>
 
-            <button
-              id="nav-btn-dataset"
-              onClick={() => setActiveTab('dataset')}
-              className={`flex-1 md:flex-none flex items-center justify-center space-x-2 text-xs font-semibold px-4 py-2.5 rounded-lg transition-all ${
-                activeTab === 'dataset' 
-                  ? 'bg-white text-zinc-900 shadow-xs' 
-                  : 'text-zinc-500 hover:text-zinc-800'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" />
-              <span>Base FFR-v1</span>
-            </button>
+              <button
+                id="nav-btn-dataset"
+                onClick={() => setActiveTab('dataset')}
+                className={`flex-1 sm:flex-none flex items-center justify-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all ${
+                  activeTab === 'dataset' 
+                    ? 'bg-white text-zinc-900 shadow-xs' 
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>Base FFR-v1</span>
+              </button>
 
-            <button
-              id="nav-btn-augment"
-              onClick={() => setActiveTab('augment')}
-              className={`flex-1 md:flex-none flex items-center justify-center space-x-2 text-xs font-semibold px-4 py-2.5 rounded-lg transition-all ${
-                activeTab === 'augment' 
-                  ? 'bg-white text-zinc-900 shadow-xs' 
-                  : 'text-zinc-500 hover:text-zinc-800'
-              }`}
-            >
-              <Dna className="w-3.5 h-3.5" />
-              <span>Lab d'Augmentation</span>
-            </button>
+              <button
+                id="nav-btn-augment"
+                onClick={() => setActiveTab('augment')}
+                className={`flex-1 sm:flex-none flex items-center justify-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all ${
+                  activeTab === 'augment' 
+                    ? 'bg-white text-zinc-900 shadow-xs' 
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Dna className="w-3.5 h-3.5" />
+                <span>Lab d'Augmentation</span>
+              </button>
 
+              <button
+                id="nav-btn-model"
+                onClick={() => setActiveTab('model')}
+                className={`flex-1 sm:flex-none flex items-center justify-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all ${
+                  activeTab === 'model' 
+                    ? 'bg-white text-zinc-900 shadow-xs' 
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>Fine-Tuning LoRA</span>
+              </button>
+
+              <button
+                id="nav-btn-ethics"
+                onClick={() => setActiveTab('ethics')}
+                className={`flex-1 sm:flex-none flex items-center justify-center space-x-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-all ${
+                  activeTab === 'ethics' 
+                    ? 'bg-white text-zinc-900 shadow-xs' 
+                    : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>Éthique & Biais</span>
+              </button>
+            </nav>
+
+            {/* Dedicated Export PDF Header Button */}
             <button
-              id="nav-btn-model"
-              onClick={() => setActiveTab('model')}
-              className={`flex-1 md:flex-none flex items-center justify-center space-x-2 text-xs font-semibold px-4 py-2.5 rounded-lg transition-all ${
-                activeTab === 'model' 
-                  ? 'bg-white text-zinc-900 shadow-xs' 
-                  : 'text-zinc-500 hover:text-zinc-800'
-              }`}
+              id="btn-header-export-pdf"
+              onClick={() => setIsPdfModalOpen(true)}
+              className="w-full sm:w-auto bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow-xs flex items-center justify-center space-x-2 shrink-0"
             >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>Fine-Tuning LoRA</span>
+              <FileText className="w-3.5 h-3.5 text-emerald-400" />
+              <span>PDF Projet</span>
             </button>
-          </nav>
+          </div>
+
         </div>
       </header>
 
@@ -170,6 +214,10 @@ export default function App() {
           {activeTab === 'model' && (
             <ModelSpecs />
           )}
+
+          {activeTab === 'ethics' && (
+            <EthicsSection />
+          )}
         </div>
       </main>
 
@@ -180,11 +228,24 @@ export default function App() {
             <p className="font-bold text-zinc-900">Traducteur Neuronal Fongbe-Français à Faibles Ressources</p>
             <p className="font-medium">Cahier des charges version 1.0 • Domaine : Langues et Inclusion</p>
           </div>
-          <div className="text-zinc-400 font-medium text-center md:text-right">
+          <div className="text-zinc-400 font-medium text-center md:text-right flex items-center space-x-4">
+            <button
+              onClick={() => setIsPdfModalOpen(true)}
+              className="text-emerald-600 hover:text-emerald-700 font-bold flex items-center space-x-1 underline cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Télécharger le Rapport PDF</span>
+            </button>
             <span>© 2026 Plateforme de Traduction Fongbe • Tous droits réservés</span>
           </div>
         </div>
       </footer>
+
+      {/* PDF Modal */}
+      <ProjectPdfModal 
+        isOpen={isPdfModalOpen} 
+        onClose={() => setIsPdfModalOpen(false)} 
+      />
     </div>
   );
 }

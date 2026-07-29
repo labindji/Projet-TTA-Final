@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import { FFR_SAMPLES, SYNONYM_DICTIONARY } from './src/data/ffr_samples';
 import { TranslationResult, DiacriticAnalysis, AugmentationResult } from './src/types';
@@ -406,7 +406,7 @@ app.get('/api/dataset-stats', (req, res) => {
 
 // Endpoint 2: Translate Fon <-> French
 app.post('/api/translate', async (req, res) => {
-  const { text, direction } = req.body;
+  const { text, direction, customDictionary } = req.body;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: "Le texte à traduire est obligatoire." });
@@ -454,9 +454,16 @@ app.post('/api/translate', async (req, res) => {
     const sourceLanguage = isFonToFr ? "Fongbe (Fon)" : "Français";
     const targetLanguage = isFonToFr ? "Français" : "Fongbe (Fon)";
 
+    let dictionaryPrompt = "";
+    if (customDictionary && Array.isArray(customDictionary) && customDictionary.length > 0) {
+      dictionaryPrompt = `De plus, respectez absolument ces termes issus du dictionnaire personnalisé de l'utilisateur :
+${customDictionary.map((item: any) => `- Traduire l'expression "${item.source}" par "${item.target}"`).join('\n')}\n`;
+    }
+
     const systemPrompt = `Vous êtes un traducteur neuronal expert spécialisé dans la traduction entre le français et le Fongbe (Fon), une langue nationale du Bénin considérée comme "faiblement ressourcée".
 Votre objectif est de fournir une traduction rigoureuse et précise, en veillant tout particulièrement aux diacritiques du Fon (tons haut '́', bas '̀', montant '̌', descendant '̂' et la lettre rétroflexe 'ɖ', ainsi que les voyelles ouvertes 'ɛ' et 'ɔ'), car ils changent totalement le sens des mots.
 
+${dictionaryPrompt}
 Voici quelques paires de référence issues du dataset officiel FFR-v1 pour guider votre traduction :
 ${FFR_SAMPLES.map(s => `- Fon: "${s.fon_text}" <=> Français: "${s.french_text}"`).join('\n')}
 
@@ -465,7 +472,7 @@ Veuillez retourner le résultat strictement sous la forme d'un objet JSON conten
   "translatedText": "La phrase traduite en ${targetLanguage} avec les bons diacritiques",
   "explanation": "Une brève explication linguistique des choix de traduction, des mots clés et de la grammaire (2-3 phrases)."
 }
-Générez uniquement du JSON valide sans aucune fioriture markdown autour.`;
+Génerez uniquement du JSON valide sans aucune fioriture markdown autour.`;
 
     const modelResponse = await ai.models.generateContent({
       model: "gemini-3.5-flash",
@@ -473,6 +480,7 @@ Générez uniquement du JSON valide sans aucune fioriture markdown autour.`;
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -682,7 +690,10 @@ Retournez uniquement un objet JSON :
           const modelResponse = await ai.models.generateContent({
             model: "gemini-3.5-flash",
             contents: prompt,
-            config: { responseMimeType: "application/json" }
+            config: {
+              responseMimeType: "application/json",
+              thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
+            }
           });
           const responseText = modelResponse.text?.trim() || '{}';
           const data = JSON.parse(responseText);
@@ -703,7 +714,10 @@ Retournez uniquement un objet JSON :
         const modelResponse = await ai.models.generateContent({
           model: "gemini-3.5-flash",
           contents: prompt,
-          config: { responseMimeType: "application/json" }
+          config: {
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
+          }
         });
         const responseText = modelResponse.text?.trim() || '{}';
         const data = JSON.parse(responseText);
@@ -724,6 +738,9 @@ Retournez uniquement un objet JSON :
       const step1Response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt1,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
+        }
       });
       const intermediateText = step1Response.text?.trim() || "";
 
@@ -732,6 +749,9 @@ Retournez uniquement un objet JSON :
       const step2Response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: prompt2,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
+        }
       });
       augmentedText = step2Response.text?.trim() || cleanText;
 

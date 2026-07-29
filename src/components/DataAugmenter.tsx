@@ -10,7 +10,9 @@ import {
   Plus,
   Play,
   ArrowRight,
-  Info
+  Info,
+  Download,
+  Database
 } from 'lucide-react';
 import { AugmentationResult } from '../types';
 import { FFR_SAMPLES } from '../data/ffr_samples';
@@ -24,12 +26,86 @@ export default function DataAugmenter() {
   const [result, setResult] = useState<AugmentationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Accumulated dataset state
+  const [accumulatedDataset, setAccumulatedDataset] = useState<AugmentationResult[]>(() => {
+    try {
+      const stored = localStorage.getItem('ffr_accumulated_augmented_dataset');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveAccumulatedDataset = (newDataset: AugmentationResult[]) => {
+    setAccumulatedDataset(newDataset);
+    try {
+      localStorage.setItem('ffr_accumulated_augmented_dataset', JSON.stringify(newDataset));
+    } catch (e) {
+      console.error("Failed to save accumulated dataset", e);
+    }
+  };
+
+  const handleAddToAccumulated = () => {
+    if (!result) return;
+    const exists = accumulatedDataset.some(
+      item => item.originalText.trim() === result.originalText.trim() && 
+              item.augmentedText.trim() === result.augmentedText.trim()
+    );
+    if (!exists) {
+      saveAccumulatedDataset([result, ...accumulatedDataset]);
+    }
+  };
+
+  const handleDeleteAccumulatedItem = (idx: number) => {
+    const updated = [...accumulatedDataset];
+    updated.splice(idx, 1);
+    saveAccumulatedDataset(updated);
+  };
+
+  const handleClearAccumulated = () => {
+    if (window.confirm("Êtes-vous sûr de vouloir vider le jeu de données accumulé ?")) {
+      saveAccumulatedDataset([]);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (accumulatedDataset.length === 0) return;
+    const headers = ["original_text", "augmented_text", "augmentation_type", "language_direction"];
+    const rows = accumulatedDataset.map(item => [
+      `"${item.originalText.replace(/"/g, '""')}"`,
+      `"${item.augmentedText.replace(/"/g, '""')}"`,
+      `"${item.type}"`,
+      `"${direction}"`
+    ]);
+    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ffr_augmented_dataset_${direction}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJSON = () => {
+    if (accumulatedDataset.length === 0) return;
+    const jsonContent = JSON.stringify(accumulatedDataset, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `ffr_augmented_dataset_${direction}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Quick template sentences
   const handleSelectSample = (sampleText: string) => {
     setInputText(sampleText);
     setResult(null);
   };
 
+  // Bascule la langue du texte à augmenter entre Fongbe (Fon) et Français
   const handleToggleLanguage = () => {
     const newLang = direction === 'fon' ? 'fr' : 'fon';
     setDirection(newLang);
@@ -38,6 +114,7 @@ export default function DataAugmenter() {
     setError(null);
   };
 
+  // Déclenche l'appel d'augmentation de données synthétiques au serveur backend
   const handleAugment = async () => {
     if (!inputText.trim()) return;
 
@@ -45,6 +122,7 @@ export default function DataAugmenter() {
     setError(null);
 
     try {
+      // Requête POST vers /api/augment avec les hyperparamètres (type, intensité, langue)
       const response = await fetch('/api/augment', {
         method: 'POST',
         headers: {
@@ -58,11 +136,30 @@ export default function DataAugmenter() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error('La requête d\'augmentation de données a échoué.');
+      let data: AugmentationResult;
+      try {
+        if (!response.ok) {
+          const contentType = response.headers.get("content-type");
+          let errMsg = 'La requête d\'augmentation de données a échoué.';
+          if (contentType && contentType.includes("application/json")) {
+            const errData = await response.json();
+            errMsg = errData.error || errMsg;
+          } else {
+            errMsg = `Le serveur a renvoyé une réponse invalide (Code ${response.status}).`;
+          }
+          throw new Error(errMsg);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Le serveur n'a pas retourné de réponse au format JSON. Veuillez rafraîchir la page et réessayer.");
+        }
+
+        data = await response.json();
+      } catch (parseErr: any) {
+        throw new Error(parseErr.message || "Impossible de parser la réponse d'augmentation du serveur.");
       }
 
-      const data: AugmentationResult = await response.json();
       setResult(data);
     } catch (err: any) {
       setError(err.message || "Une erreur s'est produite lors de l'augmentation.");
@@ -74,7 +171,7 @@ export default function DataAugmenter() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       
-      {/* Control panel */}
+      {/* Panneau latéral gauche : Contrôles et paramètres de l'augmentation */}
       <div className="space-y-6 lg:col-span-1">
         <div className="bg-white border border-zinc-200/80 rounded-xl p-5 shadow-2xs space-y-5">
           <div className="border-b border-zinc-100 pb-3 flex items-center space-x-2">
@@ -83,7 +180,7 @@ export default function DataAugmenter() {
           </div>
 
           <div className="space-y-4">
-            {/* Lang selector button */}
+            {/* Sélecteur rapide de langue source */}
             <div className="flex justify-between items-center text-xs">
               <span className="font-semibold text-zinc-500">Langue source :</span>
               <button
@@ -95,11 +192,11 @@ export default function DataAugmenter() {
               </button>
             </div>
 
-            {/* Methods radios */}
+            {/* Liste d'options de techniques d'augmentation */}
             <div className="space-y-2">
               <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Techniques :</span>
               
-              {/* Noise */}
+              {/* Option 1 : Injection de bruit linguistique (Noise) */}
               <label className={`flex items-start p-3 border rounded-xl cursor-pointer transition ${
                 type === 'noise' 
                   ? 'bg-zinc-50/80 border-zinc-900 ring-1 ring-zinc-900' 
@@ -121,7 +218,7 @@ export default function DataAugmenter() {
                 </div>
               </label>
 
-              {/* Synonym */}
+              {/* Option 2 : Remplacement lexical par synonymes */}
               <label className={`flex items-start p-3 border rounded-xl cursor-pointer transition ${
                 type === 'synonym' 
                   ? 'bg-zinc-50/80 border-zinc-900 ring-1 ring-zinc-900' 
@@ -143,7 +240,7 @@ export default function DataAugmenter() {
                 </div>
               </label>
 
-              {/* Back translation */}
+              {/* Option 3 : Paraphrase par rétro-traduction sémantique */}
               <label className={`flex items-start p-3 border rounded-xl cursor-pointer transition ${
                 type === 'back_translation' 
                   ? 'bg-zinc-50/80 border-zinc-900 ring-1 ring-zinc-900' 
@@ -166,7 +263,7 @@ export default function DataAugmenter() {
               </label>
             </div>
 
-            {/* Intensity slider */}
+            {/* Curseur de réglage de l'intensité de mutation (ex: taux de suppression ou de synonymes) */}
             <div className="space-y-2 pt-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-zinc-600">Intensité (Taux de mutation)</span>
@@ -270,9 +367,20 @@ export default function DataAugmenter() {
               className="bg-white border border-zinc-200/80 rounded-xl p-6 shadow-2xs space-y-6"
             >
               {/* Header result */}
-              <div className="border-b border-zinc-100 pb-3 flex items-center space-x-2">
-                <Dna className="w-4 h-4 text-zinc-800 animate-pulse" />
-                <h4 className="font-display font-semibold text-zinc-900 text-sm">Résultat de la synthèse synthétique</h4>
+              <div className="border-b border-zinc-100 pb-3 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Dna className="w-4 h-4 text-zinc-800 animate-pulse" />
+                  <h4 className="font-display font-semibold text-zinc-900 text-sm">Résultat de la synthèse synthétique</h4>
+                </div>
+                <button
+                  id="btn-add-to-accumulated-dataset"
+                  onClick={handleAddToAccumulated}
+                  className="flex items-center space-x-1.5 px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[10px] font-bold transition shadow-xs"
+                  title="Ajouter ce couple généré à votre jeu de données d'augmentation accumulé"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Ajouter au jeu accumulé</span>
+                </button>
               </div>
 
               {/* Side by side splits */}
@@ -320,6 +428,76 @@ export default function DataAugmenter() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* Persistent Accumulated Dataset Panel */}
+      <div className="lg:col-span-3 bg-white border border-zinc-200/80 rounded-xl p-6 shadow-2xs space-y-5">
+        <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+          <div className="flex items-center space-x-2">
+            <Database className="w-4 h-4 text-zinc-900" />
+            <h4 className="font-display font-semibold text-zinc-900 text-sm">Jeu de données d'augmentation accumulé ({accumulatedDataset.length})</h4>
+          </div>
+          {accumulatedDataset.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <button
+                id="btn-export-csv"
+                onClick={handleExportCSV}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-semibold transition shadow-xs"
+              >
+                <Download className="w-3 h-3" />
+                <span>Exporter CSV</span>
+              </button>
+              <button
+                id="btn-export-json"
+                onClick={handleExportJSON}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 border border-zinc-200 rounded-lg text-xs font-semibold transition"
+              >
+                <Download className="w-3 h-3" />
+                <span>Exporter JSON</span>
+              </button>
+              <button
+                id="btn-clear-accumulated"
+                onClick={handleClearAccumulated}
+                className="flex items-center space-x-1.5 px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-xs font-semibold transition"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Vider</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {accumulatedDataset.length === 0 ? (
+          <div className="text-center py-8 text-zinc-400 text-xs space-y-1">
+            <p>Aucun couple de phrases n'a encore été ajouté au jeu de données accumulé.</p>
+            <p className="text-[10px] text-zinc-400">Générez des variantes ci-dessus puis cliquez sur "Ajouter au jeu accumulé" pour constituer votre corpus d'entraînement.</p>
+          </div>
+        ) : (
+          <div className="max-h-72 overflow-y-auto border border-zinc-150 rounded-lg divide-y divide-zinc-100 text-xs">
+            {accumulatedDataset.map((item, idx) => (
+              <div key={idx} className="p-3 hover:bg-zinc-50/50 transition flex items-center justify-between">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 pr-4">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider block">Original</span>
+                    <span className="font-medium text-zinc-700">{item.originalText}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Synthétique ({item.type})</span>
+                    <span className="font-bold text-zinc-950">{item.augmentedText}</span>
+                  </div>
+                </div>
+                <button
+                  id={`btn-delete-accumulated-item-${idx}`}
+                  onClick={() => handleDeleteAccumulatedItem(idx)}
+                  className="p-1.5 text-zinc-400 hover:text-red-600 rounded-md hover:bg-red-50 transition"
+                  title="Retirer cette paire du jeu d'augmentation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

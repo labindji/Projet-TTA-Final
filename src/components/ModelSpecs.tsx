@@ -18,7 +18,8 @@ import {
   Flame, 
   Info,
   TrendingUp,
-  Settings2
+  Settings2,
+  Download
 } from 'lucide-react';
 import { TRAINING_METRICS_LOGS } from '../data/ffr_samples';
 
@@ -30,6 +31,222 @@ export default function ModelSpecs() {
   const [isTraining, setIsTraining] = useState<boolean>(false);
   const [trainProgress, setTrainProgress] = useState<number>(0);
   const [simulatedEpochs, setSimulatedEpochs] = useState<any[]>([]);
+
+  // Function to dynamically build and download the customized python fine-tuning script
+  const handleDownloadScript = () => {
+    const pythonCode = `#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Traducteur Neuronal Fongbe-Français (Low-Resource NMT)
+Script d'entraînement et de fine-tuning LoRA avec mT5-small et Hugging Face.
+Généré dynamiquement par l'application Web avec vos hyperparamètres personnalisés !
+
+Hyperparamètres configurés :
+- Rang LoRA (r) : ${loraRank}
+- LoRA Alpha (α) : ${loraAlpha}
+- Taux d'apprentissage (LR) : ${learningRate}
+- Dropout : ${dropout}
+"""
+
+import os
+import re
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AdamW, get_linear_schedule_with_warmup
+from peft import LoraConfig, get_peft_model, TaskType
+from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+
+# Configuration du logging pour suivre l'entraînement
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+class FFRTextCleaner:
+    """
+    Classe utilitaire pour le nettoyage et la normalisation linguistique 
+    du corpus de traduction Fongbe-Français (FFR).
+    """
+    @staticmethod
+    def clean_french(text: str) -> str:
+        """Nettoie le texte en français (minuscules, retrait des espaces superflus)."""
+        if not isinstance(text, str):
+            return ""
+        text = text.lower().strip()
+        text = re.sub(r'\\s+', ' ', text)
+        return text
+
+    @staticmethod
+    def clean_fongbe(text: str) -> str:
+        """
+        Nettoie le texte en Fongbe tout en préservant scrupuleusement les tons 
+        (accents aigu, grave, caron, circonflexe) indispensables à la sémantique.
+        """
+        if not isinstance(text, str):
+            return ""
+        text = text.lower().strip()
+        text = re.sub(r'[^\\w\\s\\d\\'\\-\\u00C0-\\u00FF\\u0100-\\u017F\\u0180-\\u024F]', '', text)
+        text = re.sub(r'\\s+', ' ', text)
+        return text
+
+
+class FFRDataset(Dataset):
+    """
+    Dataset PyTorch sur mesure pour charger, nettoyer, aligner et tokeniser 
+    les paires de phrases Fongbe-Français.
+    """
+    def __init__(self, filepath: str, tokenizer, max_length: int = 128, direction: str = 'fon2fr'):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.direction = direction
+        
+        logger.info(f"Chargement du dataset depuis {filepath}...")
+        self.df = pd.read_csv(filepath) if os.path.exists(filepath) else self._load_mock_data()
+        self._preprocess_dataset()
+
+    def _load_mock_data(self) -> pd.DataFrame:
+        """Génère un échantillon de données de secours si le CSV n'est pas présent."""
+        data = {
+            'fon_text': [
+                "ɖévi ɔ́ ɖu kokló ɔ́ kpo tǎkín kpo.",
+                "un wǎnyíyí nú wèmá mǐtɔn.",
+                "a fɔ́n ganjí à?",
+                "nyɔ̌nu ɔ́ sà wèma mǐtorn lě.",
+                "e ɖu súnnu ɔ́ tɔn kpɛ́ dǔ."
+            ],
+            'french_text': [
+                "l'enfant a mangé le poulet avec du piment.",
+                "j'aime mon livre.",
+                "comment tu vas ? (bonjour)",
+                "la femme a vendu mon livre ici.",
+                "il a remercié l'homme."
+            ],
+            'category': ['Cuisine', 'Éducation', 'Salutation', 'Vie quotidienne', 'Expression']
+        }
+        return pd.DataFrame(data)
+
+    def _preprocess_dataset(self):
+        """Nettoie et filtre les données aberrantes."""
+        self.df['fon_text'] = self.df['fon_text'].apply(FFRTextCleaner.clean_fongbe)
+        self.df['french_text'] = self.df['french_text'].apply(FFRTextCleaner.clean_french)
+        self.df = self.df[(self.df['fon_text'] != "") & (self.df['french_text'] != "")].reset_index(drop=True)
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        source = row['fon_text'] if self.direction == 'fon2fr' else row['french_text']
+        target = row['french_text'] if self.direction == 'fon2fr' else row['fon_text']
+        
+        source_inputs = self.tokenizer(
+            source,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        target_inputs = self.tokenizer(
+            text_target=target,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        labels = target_inputs["input_ids"].squeeze(0)
+        labels[labels == self.tokenizer.pad_token_id] = -100
+
+        return {
+            "input_ids": source_inputs["input_ids"].squeeze(0),
+            "attention_mask": source_inputs["attention_mask"].squeeze(0),
+            "labels": labels
+        }
+
+
+class LoRAMT5Translator:
+    """
+    Classe principale contenant l'architecture du réseau de neurones profond (Seq2Seq mT5-small)
+    et le pipeline d'adaptation par Low-Rank Adaptation (LoRA).
+    """
+    def __init__(self, model_name: str = "google/mt5-small"):
+        self.model_name = model_name
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        base_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        
+        # Injection des matrices de faible rang personnalisées (LoRA)
+        peft_config = LoraConfig(
+            task_type=TaskType.SEQ_2_SEQ_LM,
+            inference_mode=False,
+            r=${loraRank},
+            lora_alpha=${loraAlpha},
+            lora_dropout=${dropout},
+            target_modules=["q", "v"]
+        )
+        
+        self.model = get_peft_model(base_model, peft_config)
+        self.model.to(self.device)
+
+    def train_epoch(self, dataloader, optimizer, scheduler):
+        """Entraîne le modèle sur une seule époque."""
+        self.model.train()
+        total_loss = 0
+        for batch in dataloader:
+            optimizer.zero_grad()
+            input_ids = batch["input_ids"].to(self.device)
+            attention_mask = batch["attention_mask"].to(self.device)
+            labels = batch["labels"].to(self.device)
+            
+            outputs = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels
+            )
+            
+            loss = outputs.loss
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+            total_loss += loss.item()
+            
+        return total_loss / len(dataloader)
+
+
+if __name__ == "__main__":
+    logger.info("==============================================")
+    logger.info("Démarrage de l'entraînement personnalisé LoRA")
+    logger.info("==============================================")
+    translator = LoRAMT5Translator()
+    dataset = FFRDataset("ffr_dataset.csv", translator.tokenizer)
+    loader = DataLoader(dataset, batch_size=4, shuffle=True)
+    
+    optimizer = AdamW(translator.model.parameters(), lr=${learningRate})
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer, 
+        num_warmup_steps=100, 
+        num_training_steps=len(loader) * 10
+    )
+    
+    logger.info("Début des boucles d'entraînement...")
+    for epoch in range(1, 11):
+        loss = translator.train_epoch(loader, optimizer, scheduler)
+        logger.info(f"Epoch {epoch}/10 complète | Perte moyenne : {loss:.4f}")
+`;
+
+    const blob = new Blob([pythonCode], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `train_lora_mt5_r${loraRank}_a${loraAlpha}.py`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Base configurations
   const modelOptions = [
@@ -213,7 +430,7 @@ export default function ModelSpecs() {
             </div>
 
             {/* Simulator Run button */}
-            <div className="pt-4 border-t border-zinc-100">
+            <div className="pt-4 border-t border-zinc-100 space-y-2">
               <button
                 id="btn-trigger-training-simulation"
                 onClick={handleStartSimulatedTraining}
@@ -226,6 +443,16 @@ export default function ModelSpecs() {
               >
                 <Play className="w-3.5 h-3.5" />
                 <span>{isTraining ? 'Entraînement simulé...' : 'Lancer l\'entraînement LoRA'}</span>
+              </button>
+
+              <button
+                id="btn-download-custom-python-script"
+                onClick={handleDownloadScript}
+                className="w-full flex items-center justify-center space-x-2 py-2.5 px-4 rounded-xl text-xs font-semibold bg-zinc-50 hover:bg-zinc-100 text-zinc-800 border border-zinc-250 transition shadow-xs"
+                title="Exporter le script de fine-tuning mT5 avec vos hyperparamètres actuels"
+              >
+                <Download className="w-3.5 h-3.5 text-zinc-600" />
+                <span>Télécharger le code Python (LoRA)</span>
               </button>
 
               {isTraining && (
